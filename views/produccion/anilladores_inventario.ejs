@@ -1,0 +1,53 @@
+<%- include('../partials/header') %>
+
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+    <div>
+        <h1 style="margin: 0; color: #333;">📊 Inventario y Personal (Anilladores)</h1>
+        <p style="color: gray; margin-top: 5px;">Control de insumos gráficos y registro de nuevos anilladores.</p>
+    </div>
+</div>
+
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+    <!-- INVENTARIO GRÁFICO -->
+    <div class="card" style="border-top: 4px solid #8b5cf6;">
+        <h3 style="margin-top: 0;">Insumos Gráficos Disponibles</h3>
+        <table style="width: 100%; margin-top: 15px;">
+            <thead>
+                <tr>
+                    <th>Material</th>
+                    <th>Cantidad</th>
+                    <th>Unidad</th>
+                </tr>
+            </thead>
+            <tbody>
+                <% insumos.forEach(i => { %>
+                    <tr>
+                        <td style="font-weight: 500;"><%= i.material %></td>
+                        <td style="font-weight: bold; color: <%= i.cantidad < 100 ? '#ef4444' : '#10b981' %>"><%= i.cantidad %></td>
+                        <td><%= i.unidad_medida %></td>
+                    </tr>
+                <% }) %>
+            </tbody>
+        </table>
+    </div>
+
+    <!-- NUEVO EMPLEADO -->
+    <div class="card" style="border-top: 4px solid #6b7280;">
+        <h3 style="margin-top: 0;">Registrar Nuevo Anillador</h3>
+        <form action="/api/anilladores/empleados" method="POST">
+            <div style="margin-bottom: 15px;">
+                <label>Nombre Completo</label>
+                <input type="text" name="nombre" style="width: 100%;" required>
+            </div>
+            <div style="margin-bottom: 20px;">
+                <label>Cédula de Identidad</label>
+                <input type="text" name="cedula" style="width: 100%;" required>
+            </div>
+            <button type="submit" style="width: 100%; background: #374151; color: white; border: none; padding: 12px; border-radius: 8px; font-size: 16px; cursor: pointer;">
+                Crear Empleado
+            </button>
+        </form>
+    </div>
+</div>
+
+<%- include('../partials/footer') %>

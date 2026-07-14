@@ -1,4 +1,6 @@
-# Diseño e Implementación de un Sistema Web para la Automatización del Control de Producción e Inventario (ERP) en la Fábrica de Tabacos Gato Negro
+> Etiquetas: #academico #investigacion
+
+# Diseño e Implementación de un Sistema Web para la Automatización del Control de Producción e Inventario ([[SISTEMA_ERP_Y_BOT|ERP]]) en la [[EMPRESA_GATO_NEGRO|Fábrica de Tabacos Gato Negro]]
 
 **Nombre del Autor:** Gonzalo Jaimes  
 **Institución:** Universidad de Pamplona, Sede Villa del Rosario  

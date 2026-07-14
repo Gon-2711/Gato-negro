@@ -54,6 +54,7 @@ const produccionRoutes = require('./src/routes/produccion');
 const equiposRoutes  = require('./src/routes/equipos');
 const finanzasRoutes = require('./src/routes/finanzas');
 const operarioRoutes = require('./src/routes/operario');
+const anilladoresRoutes = require('./src/routes/anilladores');
 
 app.get('/', (req, res) => res.render('login'));
 
@@ -63,6 +64,7 @@ app.use('/', produccionRoutes);
 app.use('/', equiposRoutes);
 app.use('/', finanzasRoutes);
 app.use('/', operarioRoutes);
+app.use('/', anilladoresRoutes);
 
 // --- MANEJO DE ERRORES 404 ---
 app.use((req, res) => {
@@ -71,7 +73,9 @@ app.use((req, res) => {
 
 // --- INICIAR SERVIDOR ---
 const PORT = process.env.PORT || 3000;
-if (process.env.NODE_ENV !== 'production') {
+// En Vercel no se debe usar app.listen. En Docker o Local sí.
+const isVercel = process.env.VERCEL === '1' || !!process.env.VERCEL;
+if (!isVercel) {
     app.listen(PORT, () => {
         console.log(`
   🐈‍⬛ Gato Negro ERP - v3.3.0 Modular

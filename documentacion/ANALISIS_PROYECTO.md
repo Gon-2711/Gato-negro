@@ -1,4 +1,6 @@
-# Análisis Arquitectónico y Documentación Técnica: Gato Negro ERP
+> Etiquetas: #erp #backend #frontend
+
+# Análisis Arquitectónico y Documentación Técnica: [[SISTEMA_ERP_Y_BOT|Gato Negro ERP]]
 ## Sistema Avanzado de Gestión de Producción y Cierres Contables
 
 **Versión Actual**: 2.4.0 (Estable - Producción)  
@@ -20,7 +22,7 @@
 ---
 
 ## 📌 1. Resumen Ejecutivo e Hitos
-**Gato Negro ERP** es la columna vertebral digital de una fábrica manufacturera de tabacos. Evolucionó desde un sistema descentralizado (P2P Fabriquín) hacia un **control administrativo centralizado** de flujo de materia prima y control de deudas rotativas (V1.8.x).
+**[[SISTEMA_ERP_Y_BOT|Gato Negro ERP]]** es la columna vertebral digital de una [[EMPRESA_GATO_NEGRO|fábrica manufacturera de tabacos]]. Evolucionó desde un sistema descentralizado (P2P Fabriquín) hacia un **control administrativo centralizado** de flujo de materia prima y control de deudas rotativas (V1.8.x).
 
 **Hitos Históricos de Arquitectura:**
 - **V1.6:** Implementación de Supabase y autenticación de roles, eliminando SQLite local.

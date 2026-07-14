@@ -1,4 +1,6 @@
-# 🚀 Análisis de Proyecto: Gato Negro RPM v3.0
+> Etiquetas: #erp #backend
+
+# 🚀 Análisis de Proyecto: [[EMPRESA_GATO_NEGRO|Gato Negro]] RPM v3.0
 
 La plataforma ha alcanzado su iteración **3.0.3**, consolidándose como un sistema robusto, con procesos anti-fugas y una interfaz moderna adaptada en su totalidad al modo oscuro. 
 
@@ -22,7 +24,7 @@ La plataforma ha alcanzado su iteración **3.0.3**, consolidándose como un sist
 - **Mejoras v3.0:** Adiós a los errores de ortografía. Implementamos **Selectores Anidados** (Ej: "Cestas" -> "Cestas rojas") que blindan la Base de Datos contra variaciones extrañas que nos descuadraban los despachos.
 
 ### 4. Nomina y Facturación
-- **Qué hace:** Liquida pagos de fabriquines cruzando automáticamente sus adelantos, descuentos de suministros (ceniza, goma) y entregas de tabacos terminados.
+- **Qué hace:** Liquida pagos de [[DICCIONARIO_FABRICA|fabriquines]] cruzando automáticamente sus adelantos, descuentos de suministros (ceniza, goma) y entregas de tabacos terminados.
 - **Estado Actual:** 100% Funcional.
 - **Mejoras v3.0:** Cálculos protegidos desde el servidor (cero manipulación local) y capacidad de generar "Hojas de Despacho" físicas en formato PDF/Imprimible.
 

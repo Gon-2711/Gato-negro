@@ -1,9 +1,11 @@
 const TelegramBot = require('node-telegram-bot-api');
 const { supabase, obtenerHoraColombia } = require('../lib/shared');
-const { GoogleGenAI } = require('@google/genai');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 const menus = require('./handlers/menu_handlers');
 const GatoNegroPDF = require('../lib/pdf_gen');
 const { Ollama } = require('ollama'); // 👈 Importamos Ollama
+const fs = require('fs');
+const path = require('path');
 
 // ============================================================
 // 🔧 CONFIGURACIÓN Y VALIDACIÓN DE VARIABLES DE ENTORNO
@@ -28,6 +30,7 @@ if (!GEMINI_API_KEY) {
 // ============================================================
 const ADMIN_LIST = [
     8589883684, // Gonzalo
+    2073256205, // Ingeniera Yesith
 ];
 
 // ============================================================
@@ -41,11 +44,12 @@ const userStates = {};
 // ============================================================
 let ai = null;
 if (GEMINI_API_KEY) {
-    ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
+    ai = new GoogleGenerativeAI(GEMINI_API_KEY);
 }
 
-// Instancia de Ollama apuntando a tu PC local (localhost:11434)
-const ollama = new Ollama();
+// Instancia de Ollama apuntando dinámicamente
+const OLLAMA_HOST = process.env.OLLAMA_HOST || 'http://127.0.0.1:11434';
+const ollama = new Ollama({ host: OLLAMA_HOST });
 
 // ============================================================
 // 🤖 BOT DE TELEGRAM
@@ -131,6 +135,7 @@ async function consultarDeudaEmpleado({ nombre_o_codigo }) {
 
         return {
             encontrado: true,
+            id: emp.id, // <--- AÑADIDO PARA USO INTERNO
             nombre: emp.nombre,
             codigo: emp.codigo,
             deuda_tabacos: emp.deuda_tabacos || 0,
@@ -184,12 +189,12 @@ async function consultarMaquinaria() {
         const { data: maquinas } = await supabase.from('maquinas').select('*');
         if (!maquinas) return { error: true, mensaje: 'No hay datos de maquinaria.' };
 
-        let funcionales = 0, conFallas = 0, urgentes = [];
+        let funcionales = [], conFallas = [], urgentes = [];
         const hoy = new Date();
 
         maquinas.forEach(m => {
-            if (m.estado === 'Funcional') funcionales++;
-            else conFallas++;
+            if (m.estado === 'Funcional') funcionales.push(m.nombre);
+            else conFallas.push(m.nombre);
 
             if (m.ultimo_mtto) {
                 const last = new Date(m.ultimo_mtto + 'T00:00:00');
@@ -198,7 +203,79 @@ async function consultarMaquinaria() {
             }
         });
 
-        return { funcionales, con_fallas: conFallas, mantenimientos_urgentes: urgentes };
+        return { 
+            total_funcionales: funcionales.length,
+            nombres_funcionales: funcionales,
+            total_con_fallas: conFallas.length,
+            nombres_con_fallas: conFallas,
+            mantenimientos_urgentes: urgentes 
+        };
+    } catch (e) {
+        return { error: true, mensaje: e.message };
+    }
+}
+
+/**
+ * Obtiene el color Y la cantidad de cestas del último despacho de un empleado.
+ */
+async function obtenerColorCestaParaPregunta({ nombre_o_codigo }) {
+    try {
+        const empRes = await consultarDeudaEmpleado({ nombre_o_codigo });
+        if (!empRes.encontrado) {
+            return { color: 'de color', cantidad: 0, nombre: nombre_o_codigo };
+        }
+
+        // Buscar el último despacho para saber el color y cantidad de cestas
+        const { data: ultimoDespacho } = await supabase
+            .from('despachos_registro')
+            .select('color_cesta, cestas_cant')
+            .eq('empleado_id', empRes.id)
+            .in('estado', ['entregado', 'pendiente', 'activo'])
+            .order('id', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+        const color = ultimoDespacho?.color_cesta || null;
+        const cantidad = parseInt(ultimoDespacho?.cestas_cant) || 0;
+
+        return {
+            color: color ? `*${color.toLowerCase()}*` : 'de color',
+            cantidad,
+            nombre: empRes.nombre
+        };
+    } catch (e) {
+        return { color: 'de color', cantidad: 0, nombre: nombre_o_codigo, error: e.message };
+    }
+}
+
+/**
+ * Enrutador de Documentación Optimizado (RAG Estático).
+ * Lee directamente el archivo pre-digerido según el tema, ahorrando CPU y Tokens.
+ */
+async function consultarDocumentacion({ tema }) {
+    try {
+        let fileName = '';
+        const t = tema.toLowerCase();
+
+        if (t.includes('empresa') || t.includes('historia') || t.includes('fabrica') || t.includes('proceso')) {
+            fileName = 'EMPRESA_GATO_NEGRO.md';
+        } else if (t.includes('erp') || t.includes('sistema') || t.includes('bot') || t.includes('proyecto') || t.includes('universidad')) {
+            fileName = 'SISTEMA_ERP_Y_BOT.md';
+        } else if (t.includes('personal') || t.includes('equipo') || t.includes('trabajador') || t.includes('administrador') || t.includes('omaira') || t.includes('gregorio') || t.includes('quien') || t.includes('quién')) {
+            fileName = 'PERSONAL_Y_ORGANIGRAMA.md';
+        } else if (t.includes('finanza') || t.includes('precio') || t.includes('formula') || t.includes('pago')) {
+            fileName = 'FINANZAS_Y_FORMULAS.md';
+        } else if (t.includes('diccionario') || t.includes('rol') || t.includes('concepto') || t.includes('cesta')) {
+            fileName = 'DICCIONARIO_FABRICA.md';
+        } else {
+            return { error: true, mensaje: "Tema no encontrado. Puedo hablar de: 'la empresa', 'el personal', 'el sistema ERP', 'finanzas' o 'diccionario'." };
+        }
+
+        const filePath = path.join(__dirname, '../../documentacion', fileName);
+        if (!fs.existsSync(filePath)) return { error: true, mensaje: `El archivo ${fileName} no existe en la base de conocimientos.` };
+
+        const content = fs.readFileSync(filePath, 'utf-8');
+        return { documento_consultado: fileName, contenido: content };
     } catch (e) {
         return { error: true, mensaje: e.message };
     }
@@ -308,54 +385,103 @@ function obtenerFechaHoraColombia() {
 /**
  * Registra producción de forma rápida desde texto natural.
  * Ahora soporta el flag 'esExtra' para sumar a extra_tabacos.
+ * Ahora soporta 'abono_pesos' para descontar de préstamos activos.
  */
-async function registrarProduccionRapida(nombre_o_codigo, tabacos, cestas = 0, color_cesta = null, esExtra = false) {
+async function registrarProduccionRapida(nombre_o_codigo, tabacos, cestas = 0, color_cesta = null, esExtra = false, abono_pesos = 0) {
     try {
         const empRes = await consultarDeudaEmpleado({ nombre_o_codigo });
         if (!empRes.encontrado) return empRes.mensaje;
         
-        // Buscar el empleado real en la DB para tener el ID
-        const { data: emp } = await supabase.from('empleados_fabriquines').select('*').eq('id', (await supabase.from('empleados_fabriquines').select('id').eq('codigo', empRes.codigo).single()).data.id).single();
-        if (!emp) return `❌ No se pudo encontrar el ID del empleado ${empRes.codigo}.`;
+        // Obtener datos completos del empleado usando el ID ya resuelto por consultarDeudaEmpleado
+        const { data: emp } = await supabase
+            .from('empleados_fabriquines')
+            .select('*')
+            .eq('id', empRes.id)
+            .single();
+        if (!emp) return `❌ No se pudo encontrar el registro completo del empleado ${empRes.codigo}.`;
+
 
         const tiempo = obtenerFechaHoraColombia();
         
-        // 1. Validar que tenga una entrega/recepción pendiente para esta semana
+        // 1. Buscar registro activo de la semana en curso
+        // Se busca en estado 'pendiente' o 'activo' (ambos significan semana en curso)
         let { data: reg } = await supabase
             .from('recepcion_diaria')
             .select('*')
             .eq('empleado_id', emp.id)
-            .eq('estado', 'pendiente')
+            .in('estado', ['pendiente', 'activo'])
             .order('id', { ascending: false })
             .limit(1)
             .maybeSingle();
 
-        if (!reg) {
-            return `⚠️ *No se puede registrar:* ${emp.nombre} no tiene una entrega o despacho activo para esta semana. Primero debes hacer el despacho en el sistema web.`;
+        // =====================================================================
+        // MODO PAGO DE DEUDA: Si no hay registro activo esta semana pero el
+        // empleado tiene deuda de tabacos, procesamos sin recepcion_diaria.
+        // Esto cubre el caso de fabriquines pagando deudas de semanas anteriores.
+        // =====================================================================
+        const esPagoDeDeuda = !reg && (emp.deuda_tabacos || 0) > 0;
+
+        if (!reg && !esPagoDeDeuda) {
+            return `⚠️ *No se puede registrar:* ${emp.nombre} no tiene un despacho activo y tampoco tiene deuda de tabacos pendiente.`;
         }
 
-        let updatedData = {};
         let msgDetalle = "";
 
-        if (esExtra) {
-            // Caso Tabacos Extras (Ventas)
-            updatedData['extra_tabacos'] = (reg.extra_tabacos || 0) + tabacos;
-            msgDetalle = `sumado a *Tabacos Extras* (Venta Directa)`;
+        if (reg) {
+            // --- MODO NORMAL: hay registro activo esta semana ---
+            let updatedData = {};
+            if (esExtra) {
+                updatedData['extra_tabacos'] = (reg.extra_tabacos || 0) + tabacos;
+                msgDetalle = `sumado a *Tabacos Extras* (Venta Directa)`;
+            } else {
+                const colTabacos = `${tiempo.columna}_tabacos`;
+                updatedData[colTabacos] = (reg[colTabacos] || 0) + tabacos;
+                msgDetalle = `sumado al día *${tiempo.columna}*`;
+            }
+            if (cestas > 0) {
+                const colCestas = `${tiempo.columna}_cestas`;
+                updatedData[colCestas] = (reg[colCestas] || 0) + cestas;
+            }
+            await supabase.from('recepcion_diaria').update(updatedData).eq('id', reg.id);
         } else {
-            // Caso Tabacos de Tarea (Día de la semana)
-            const colTabacos = `${tiempo.columna}_tabacos`;
-            updatedData[colTabacos] = (reg[colTabacos] || 0) + tabacos;
-            msgDetalle = `sumado al día *${tiempo.columna}*`;
+            // --- MODO PAGO DE DEUDA: sin despacho activo esta semana ---
+            msgDetalle = `registrado como *Pago de Deuda* (sin despacho activo esta semana)`;
         }
 
-        // Siempre sumar cestas si vienen en el mensaje al día correspondiente
-        if (cestas > 0) {
-            const colCestas = `${tiempo.columna}_cestas`;
-            updatedData[colCestas] = (reg[colCestas] || 0) + cestas;
+        // 1.5 NOVEDAD: Descontar la deuda de tabacos inmediatamente en tiempo real
+        if (!esExtra) {
+            const nuevaDeuda = Math.max(0, (emp.deuda_tabacos || 0) - tabacos);
+            await supabase.from('empleados_fabriquines').update({ deuda_tabacos: nuevaDeuda }).eq('id', emp.id);
         }
 
-        // Ejecutar actualización en recepcion_diaria
-        await supabase.from('recepcion_diaria').update(updatedData).eq('id', reg.id);
+        // 1.6 NOVEDAD: Descontar abono en pesos de los préstamos activos
+        let msgAbono = "";
+        if (abono_pesos > 0) {
+            const { data: prestamos } = await supabase
+                .from('prestamos_fabriquines')
+                .select('*')
+                .eq('empleado_id', emp.id)
+                .eq('estado', 'activo')
+                .order('created_at', { ascending: true });
+
+            let pesosRestantes = abono_pesos;
+            if (prestamos && prestamos.length > 0) {
+                for (const p of prestamos) {
+                    if (pesosRestantes <= 0) break;
+                    const saldo = parseFloat(p.saldo_pendiente || 0);
+                    if (saldo > 0) {
+                        const aDescontar = Math.min(saldo, pesosRestantes);
+                        const nuevoSaldo = saldo - aDescontar;
+                        const nuevoEstado = nuevoSaldo <= 0 ? 'pagado' : 'activo';
+                        await supabase.from('prestamos_fabriquines').update({ saldo_pendiente: nuevoSaldo, estado: nuevoEstado }).eq('id', p.id);
+                        pesosRestantes -= aDescontar;
+                    }
+                }
+                msgAbono = `\n💰 *Abono monetario:* Se descontaron *$${abono_pesos.toLocaleString('es-CO')}* de sus préstamos.`;
+            } else {
+                msgAbono = `\n⚠️ Se registró un abono de *$${abono_pesos.toLocaleString('es-CO')}*, pero no se detectaron deudas monetarias activas.`;
+            }
+        }
 
         // 2. Actualizar Inventario (Tabacos o Tabacos Extras)
         const materialInv = esExtra ? 'Tabacos Extras (Ventas)' : 'Tabacos';
@@ -370,7 +496,9 @@ async function registrarProduccionRapida(nombre_o_codigo, tabacos, cestas = 0, c
 
         await supabase.from('movimientos').insert([{
             fecha: tiempo.fecha, hora: tiempo.hora, tipo_movimiento: 'ENTRADA', material: materialInv, cantidad: tabacos, usuario: 'Bot',
-            descripcion: `Registro Rápido ${esExtra ? '(EXTRA)' : ''}: ${emp.codigo} - ${emp.nombre}`
+            descripcion: esPagoDeDeuda
+                ? `Pago de Deuda: ${emp.codigo} - ${emp.nombre}`
+                : `Registro Rápido ${esExtra ? '(EXTRA)' : ''}: ${emp.codigo} - ${emp.nombre}`
         }]);
 
         // 3. Actualizar Inventario (Cestas)
@@ -386,7 +514,54 @@ async function registrarProduccionRapida(nombre_o_codigo, tabacos, cestas = 0, c
             }
         }
 
-        return `✅ *Registro Exitoso*\n👤 Empleado: *${emp.nombre} (${emp.codigo})*\n📈 *+${tabacos.toLocaleString('es-CO')} u* ${msgDetalle}${cestas > 0 ? ` y *+${cestas}* cestas` : ''}.`;
+        // =====================================================================
+        // 4. CALCULAR SALDO PENDIENTE ACTUALIZADO para incluir en la respuesta
+        // =====================================================================
+        // 4a. Tabacos: ya calculado arriba como nuevaDeuda
+        const nuevaDeudaTabacos = !esExtra ? Math.max(0, (emp.deuda_tabacos || 0) - tabacos) : (emp.deuda_tabacos || 0);
+
+        // 4b. Pesos: re-consultar préstamos activos para obtener saldo fresco
+        const { data: prestamosActualizados } = await supabase
+            .from('prestamos_fabriquines')
+            .select('saldo_pendiente')
+            .eq('empleado_id', emp.id)
+            .eq('estado', 'activo');
+        const deudaPesosRestante = (prestamosActualizados || []).reduce((s, p) => s + parseFloat(p.saldo_pendiente || 0), 0);
+
+        // 4c. Cestas: obtener original del despacho y restar todas las devueltas históricamente
+        const { data: ultimoDespacho } = await supabase
+            .from('despachos_registro')
+            .select('cestas_cant')
+            .eq('empleado_id', emp.id)
+            .order('id', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+        const cestasOriginales = parseInt(ultimoDespacho?.cestas_cant) || 0;
+
+        // Sumar cestas devueltas en todos los registros semanales históricos
+        const { data: todasRecep } = await supabase
+            .from('recepcion_diaria')
+            .select('lun_cestas, mar_cestas, mie_cestas, jue_cestas, vie_cestas, sab_cestas')
+            .eq('empleado_id', emp.id);
+        const cestasRetornadasHistorico = (todasRecep || []).reduce((s, r) =>
+            s + (r.lun_cestas||0) + (r.mar_cestas||0) + (r.mie_cestas||0)
+              + (r.jue_cestas||0) + (r.vie_cestas||0) + (r.sab_cestas||0), 0);
+        // En modo pago de deuda las cestas de hoy no están en recepcion_diaria → sumarlas aquí
+        const cestasRetornadasTotal = cestasRetornadasHistorico + (esPagoDeDeuda ? cestas : 0);
+        const cestasPendientes = Math.max(0, cestasOriginales - cestasRetornadasTotal);
+
+        // Construir bloque de saldo pendiente
+        let msgSaldo = '';
+        if (nuevaDeudaTabacos > 0 || deudaPesosRestante > 0 || cestasPendientes > 0) {
+            msgSaldo = `\n\n📊 *Saldo pendiente de ${emp.nombre}:*`;
+            if (nuevaDeudaTabacos > 0) msgSaldo += `\n   🚬 Tabacos: *${nuevaDeudaTabacos.toLocaleString('es-CO')} u*`;
+            if (cestasPendientes > 0)  msgSaldo += `\n   🧺 Cestas:  *${cestasPendientes}*`;
+            if (deudaPesosRestante > 0) msgSaldo += `\n   💵 Pesos:   *$${deudaPesosRestante.toLocaleString('es-CO')}*`;
+        } else {
+            msgSaldo = `\n\n🎉 *¡${emp.nombre} ha saldado toda su deuda!*`;
+        }
+
+        return `✅ *Registro Exitoso*\n👤 Empleado: *${emp.nombre} (${emp.codigo})*\n📈 *+${tabacos.toLocaleString('es-CO')} u* ${msgDetalle}${cestas > 0 ? ` y *+${cestas}* cestas` : ''}.${msgAbono}${msgSaldo}`;
     } catch (e) {
         return '❌ Error al registrar producción: ' + e.message;
     }
@@ -402,7 +577,7 @@ const herramientasOllama = [
         type: 'function',
         function: {
             name: 'consultar_deuda_empleado',
-            description: 'Consulta la deuda de un empleado específico por su nombre o código. Usar cuando el usuario pregunta por una persona en particular, ej: "¿cuánto debe Alcides?", "deuda de F11", "José me debe?"',
+                description: 'Consulta la deuda de un operario. ESTÁ ESTRICTAMENTE PROHIBIDO usar esta herramienta para buscar a "Gonzalo", "Don Gonzalo" o fundadores.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -427,7 +602,7 @@ const herramientasOllama = [
         type: 'function',
         function: {
             name: 'consultar_maquinaria',
-            description: 'Muestra el estado actual de la maquinaria de la fábrica: cuántas están operativas, con fallas, y cuáles necesitan mantenimiento urgente.',
+            description: 'Muestra el estado actual de la maquinaria de la fábrica: detalla cuáles máquinas están operativas, cuáles tienen fallas, y devuelve los nombres exactos de las que necesitan mantenimiento urgente.',
             parameters: { type: 'object', properties: {} }
         }
     },
@@ -440,10 +615,57 @@ const herramientasOllama = [
                 type: 'object',
                 properties: {
                     dias: {
-                        type: 'number',
+                        type: 'integer',
                         description: 'Número de días hacia atrás para consultar. 7 = esta semana, 30 = este mes, 1 = hoy.'
                     }
-                }
+                },
+                required: ['dias']
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'registrar_produccion',
+            description: 'Registra la entrega de tabacos de un operario. REGLA ESTRICTA: Si el usuario NO menciona las cestas, PREGÚNTALE primero si entregó cestas antes de usar la herramienta. Si te confirma que no entregó, usa el valor 0.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    nombre_o_codigo: { type: 'string', description: 'Nombre o código del operario (ej: Alcides, F11)' },
+                    tabacos: { type: 'integer', description: 'Cantidad de tabacos entregados (ej: 1250)' },
+                    cestas: { type: 'integer', description: 'Cantidad de cestas devueltas. (0 si no entregó)' },
+                    abono_pesos: { type: 'integer', description: 'Pesos colombianos abonados a la deuda monetaria. 0 por defecto. Ejemplo: si dice "25000 pesos", usar 25000.' },
+                    esExtra: { type: 'boolean', description: 'Verdadero SOLO si el usuario dice que son tabacos extras o ventas directas. Falso por defecto.' }
+                },
+                required: ['nombre_o_codigo', 'tabacos', 'cestas']
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'obtener_color_cesta_para_pregunta',
+            description: 'Obtiene el color y la CANTIDAD de cestas del último despacho de un operario. Úsala cuando pregunten cuántas cestas tiene alguien, de qué color son, o antes de registrar producción para tener contexto completo.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    nombre_o_codigo: { type: 'string', description: 'Nombre o código del operario (ej: Alcides, F11)' }
+                },
+                required: ['nombre_o_codigo']
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'consultar_documentacion',
+            description: 'Lee la base de conocimientos de la empresa. ÚSALA SIEMPRE que pregunten por la historia de la empresa, "¿quién es [nombre]?", el personal (Gregorio, Omaira, etc), el proyecto, precios, o diccionarios.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    tema: { type: 'string', description: 'Palabra clave del tema (ej: "empresa", "finanzas", "personal", "gregorio", "proyecto", "diccionario")' }
+                },
+                required: ['tema']
             }
         }
     }
@@ -454,29 +676,54 @@ const herramientasOllama = [
 // ============================================================
 const conversaciones = {}; // { chatId: [ {role, parts}, ... ] }
 
-const SYSTEM_PROMPT = `Eres el "Black Cat Agent (BCA)", el asistente inteligente de la Fábrica de Tabacos Gato Negro, en Colombia.
-Tu personalidad es profesional pero cercana, usas un tono directo y amable. Eres el asistente de Gonzalo Jaimes.
+const SYSTEM_PROMPT = `Eres el "Black Cat Agent (BCA)", el carismático asistente de IA de la Fábrica de Tabacos Gato Negro.
+Tu personalidad es amigable y astuta. Eres el asistente de Gonzalo Andres Jaimes.
 
-TUS REGLAS:
-1. Responde SIEMPRE en español.
-2. Cuando necesites datos de la fábrica (deudas, máquinas, producción), usa las herramientas disponibles. NO inventes números.
-3. Sé conciso. No escribas párrafos largos si no hace falta.
-4. Usa emojis con moderación para dar carácter a tus respuestas.
-5. Si te preguntan algo que no tiene que ver con la fábrica, puedes charlar brevemente pero recuerda tu misión.
-6. Los tabacos se miden en "unidades" (u) y el dinero en pesos colombianos (COP).
-7. Cuando "Alcides", "José", "F11" etc. aparecen en el contexto de deuda, busca al empleado.`;
+DATOS EN TU MEMORIA (Usa estos datos para responder directamente, SIN usar herramientas):
+- 👔 Fundador y Dueño de la empresa: Gonzalo Jaimes Bastos (Don Gonzalo).
+- 💻 Creador tuyo (del bot) y del ERP: Gonzalo Andres Jaimes (Nieto de Don Gonzalo).
+
+REGLAS DE ORO:
+1. Actitud: Responde de forma cálida y humana en español.
+2. Cero Disculpas: ESTÁ ESTRICTAMENTE PROHIBIDO pedir perdón, decir "lo siento", "disculpa" o "cometí un error". Habla siempre con seguridad y alegría.
+3. Cero Alucinaciones: NUNCA inventes deudas, números ni nombres. Si no sabes algo, DEBES usar una herramienta. NUNCA inventes herramientas que no existan.
+4. Cero JSON: NUNCA escribas código JSON o estructuras de programación en el chat.
+
+GATILLOS DE HERRAMIENTAS (¡OBLIGATORIO USARLAS!):
+- Si preguntan "¿quién debe?", "lista de deudores": INVOCA LA HERRAMIENTA listar_todos_los_deudores.
+- Si mencionan a un operario junto a "debe", "deuda": INVOCA LA HERRAMIENTA consultar_deuda_empleado.
+- Si preguntan por "producción": INVOCA LA HERRAMIENTA consultar_produccion.
+- Si preguntan por "máquinas" o "mantenimiento": INVOCA LA HERRAMIENTA consultar_maquinaria.
+- Al registrar producción, si el usuario no menciona las cestas, DEBES usar la herramienta 'obtener_color_cesta_para_pregunta' para saber el color Y la cantidad. Luego, pregunta usando ambos datos. Ejemplo: "A Alcides se le entregaron 6 cestas negras, ¿cuántas devolvió?". Una vez tengas todos los datos, invoca 'registrar_produccion'.
+- Si preguntan "¿cuántas cestas tiene [nombre]?", "¿de qué color son sus cestas?", "¿cuántas cestas le dimos a [nombre]?": INVOCA LA HERRAMIENTA obtener_color_cesta_para_pregunta y responde con el color y la cantidad exacta.
+- Si te preguntan "¿Qué sabes de la empresa?", "¿Quién es Gregorio/Omaira/etc?", por el personal, precios, historia o el proyecto: INVOCA LA HERRAMIENTA consultar_documentacion indicando el tema.`;
 
 // ============================================================
 // 🔄 EJECUTAR LA HERRAMIENTA QUE GEMINI PIDIÓ
 // ============================================================
 async function ejecutarHerramienta(nombre, args) {
-    console.log(`🔧 Gemini invocó herramienta: ${nombre}`, JSON.stringify(args));
+    console.log(`🔧 Ollama invocó herramienta: ${nombre}`, JSON.stringify(args));
     switch (nombre) {
         case 'consultar_deuda_empleado':    return await consultarDeudaEmpleado(args);
         case 'listar_todos_los_deudores':   return await listarTodosLosDeudores();
         case 'consultar_maquinaria':        return await consultarMaquinaria();
         case 'consultar_produccion':        return await consultarProduccion(args);
-        default:                            return { error: `Herramienta desconocida: ${nombre}` };
+        case 'obtener_color_cesta_para_pregunta': return await obtenerColorCestaParaPregunta(args);
+        case 'consultar_documentacion':     return await consultarDocumentacion(args);
+        case 'registrar_produccion': {
+            const tabacosNum = parseInt(args.tabacos) || 0;
+            const cestasNum  = parseInt(args.cestas)  || 0;
+            const pesosNum   = parseInt(args.abono_pesos) || 0;
+            // Cast explícito a booleano real para evitar el bug del string 'false' (truthy)
+            const esExtraBool = args.esExtra === true || args.esExtra === 'true' || args.esExtra === 'True';
+            const resTexto = await registrarProduccionRapida(args.nombre_o_codigo, tabacosNum, cestasNum, null, esExtraBool, pesosNum);
+            return { exito: true, detalle: resTexto };
+        }
+        default:                            return { 
+            exito: true, 
+            datos: "El fundador de la empresa es Gonzalo Jaimes Bastos (Don Gonzalo). El creador del ERP y del bot es Gonzalo Andres Jaimes.",
+            instruccion_secreta: "Responde amigablemente usando esta información. Entrégasela al usuario con alegría."
+        };
     }
 }
 
@@ -504,10 +751,40 @@ async function responderConOllama(chatId, textoUsuario) {
     try {
         // 1. Llamar a Ollama
         const response = await ollama.chat({
-            model: 'llama3.2', // El modelo ligero ideal para herramientas
+            model: 'llama3.1', // Llama 3.1 8B es el rey del Tool Calling para la RTX 4050
             messages: conversaciones[chatId],
             tools: herramientasOllama,
         });
+
+        // =====================================================================
+        // 🚀 RESCATE DE ALUCINACIÓN DE TOOL CALL (LLaMA 3.1 Python/JSON Bug)
+        // =====================================================================
+        let textoSalida = response.message.content || "";
+        if (!response.message.tool_calls || response.message.tool_calls.length === 0) {
+            if (textoSalida.includes('"name"') && textoSalida.includes('{')) {
+                try {
+                    const match = textoSalida.match(/\{[\s\S]*\}/);
+                    if (match) {
+                        // Reemplazar sintaxis Python (False/True) por JSON válido
+                        const jsonLimpio = match[0].replace(/False/g, 'false').replace(/True/g, 'true').replace(/'/g, '"');
+                        const parsedTool = JSON.parse(jsonLimpio);
+                        
+                        let funcName = parsedTool.name || (parsedTool.function && parsedTool.function.name);
+                        let args = parsedTool.parameters || parsedTool.arguments || (parsedTool.function && parsedTool.function.arguments) || {};
+                        
+                        if (funcName) {
+                            console.log("🛠️ ¡Rescate exitoso de Tool Call manual!:", funcName);
+                            response.message.tool_calls = [{
+                                function: { name: funcName, arguments: args }
+                            }];
+                            response.message.content = ""; // Limpiamos para engañar al flujo
+                            textoSalida = "";
+                        }
+                    }
+                } catch(e) {}
+            }
+        }
+        // =====================================================================
 
         // 2. ¿Ollama decidió que necesita usar una base de datos/herramienta?
         if (response.message.tool_calls && response.message.tool_calls.length > 0) {
@@ -528,17 +805,30 @@ async function responderConOllama(chatId, textoUsuario) {
 
             // 3. Volvemos a llamar a Ollama para que lea los datos y redacte la respuesta final
             const finalResponse = await ollama.chat({
-                model: 'llama3.2',
+                model: 'llama3.1',
                 messages: conversaciones[chatId]
             });
             
             conversaciones[chatId].push(finalResponse.message);
-            return finalResponse.message.content;
+            
+            let textoSalidaFinal = finalResponse.message.content;
+            // Filtro Anti-Alucinación JSON Brutal Suavizado
+            if (textoSalidaFinal.includes('{"name":') || textoSalidaFinal.includes('{"function":')) {
+                console.warn("⚠️ Alucinación JSON interceptada post-tool:", textoSalidaFinal);
+                textoSalidaFinal = "🐾 ¡Miau! Ejecuté la acción exitosamente, pero me enredé respondiendo. ¿Qué más necesitas?";
+            }
+            return textoSalidaFinal;
         }
 
         // Si no usó herramientas, simplemente respondemos lo que dijo
         conversaciones[chatId].push(response.message);
-        return response.message.content;
+        
+        // Filtro Anti-Alucinación JSON Brutal Suavizado
+        if (textoSalida.includes('{"name":') || textoSalida.includes('{"function":')) {
+             console.warn("⚠️ Alucinación JSON interceptada sin tools:", textoSalida);
+             textoSalida = "🐾 ¡Miau! Me distraje con un ovillo de lana 🧶. La operación fue procesada, ¿me repites qué más querías saber?";
+        }
+        return textoSalida;
 
     } catch (e) {
         console.error('❌ Error con Ollama:', e.message);
@@ -564,6 +854,56 @@ async function procesarMensajeSync(msg) {
     try {
         console.log(`📩 [MENSAJE RECIBIDO] De: ${fromUser} (${userId}) | Texto: "${text}"`);
 
+        let textoFinal = text;
+
+        // 🎙️ MANEJO DE AUDIOS CON GEMINI (Speech-to-Text)
+        if (!msg.text) {
+            if (msg.voice) {
+                if (!ai) {
+                    bot.sendMessage(chatId, "🐾 *¡Miau!* Mi API Key de Gemini no está configurada, así que soy sordo por ahora. 😿");
+                    return;
+                }
+                bot.sendChatAction(chatId, 'typing');
+                bot.sendMessage(chatId, "🎧 _Escuchando tu nota de voz..._", { parse_mode: 'Markdown' });
+                
+                try {
+                    // 1. Descargar audio (.ogg) desde Telegram
+                    const fileInfo = await bot.getFile(msg.voice.file_id);
+                    const fileUrl = `https://api.telegram.org/file/bot${TELEGRAM_TOKEN}/${fileInfo.file_path}`;
+                    const response = await fetch(fileUrl);
+                    const arrayBuffer = await response.arrayBuffer();
+                    const audioBase64 = Buffer.from(arrayBuffer).toString('base64');
+                    
+                    // 2. Pedirle a Gemini que lo transcriba (Con Fallback de Modelos)
+                    let geminiRes;
+                    const promptAudio = [
+                        'Transcribe exactamente este mensaje de voz a texto. Solo devuelve lo que la persona dijo en español, sin añadir comillas ni comentarios.',
+                        { inlineData: { mimeType: 'audio/ogg', data: audioBase64 } }
+                    ];
+                    
+                    try {
+                        const geminiModel = ai.getGenerativeModel({ model: "gemini-1.5-flash" }); // Usar nombre canónico
+                        geminiRes = await geminiModel.generateContent(promptAudio);
+                    } catch (errApi) {
+                        console.warn(`⚠️ Intento flash falló (${errApi.message}). Intentando modelo pro...`);
+                        const fallbackModel = ai.getGenerativeModel({ model: "gemini-1.5-pro" }); // Usar nombre canónico
+                        geminiRes = await fallbackModel.generateContent(promptAudio); 
+                    }
+                    
+                    textoFinal = geminiRes.response.text().trim();
+                    console.log(`🎤 [AUDIO TRANSCRITO]: "${textoFinal}"`);
+                    bot.sendMessage(chatId, `🗣️ _Entendí:_ "${textoFinal}"`, { parse_mode: 'Markdown' });
+                } catch (audioErr) {
+                    console.error("❌ Error con Gemini Audio:", audioErr);
+                    bot.sendMessage(chatId, "🐾 *¡Miau!* Hubo un problema al escuchar tu audio. ¿Estará bien la API Key? ¿Podrías escribírmelo?");
+                    return;
+                }
+            } else {
+                bot.sendMessage(chatId, "🐾 *¡Miau!* Por ahora solo entiendo texto y notas de voz. 🐈‍⬛", { parse_mode: 'Markdown' });
+                return;
+            }
+        }
+
         // 0. Filtro de Seguridad
         if (!esAdmin(userId)) {
             console.log(`⛔ Usuario no autorizado: ${userId}`);
@@ -572,16 +912,16 @@ async function procesarMensajeSync(msg) {
         }
 
         // 1. Comando /id  – siempre responder sin IA
-        if (text === '/id') {
+        if (textoFinal === '/id') {
             bot.sendMessage(chatId, `🔑 Tu ID de Telegram es: \`${userId}\``, { parse_mode: 'Markdown' });
             return;
         }
 
         // 1. Manejo de Comandos Manuales
         const saludos = ['hola', 'buenos dias', 'buenas tardes', 'buenas noches', 'que tal', 'hey'];
-        const esSaludo = saludos.some(s => text.toLowerCase().startsWith(s));
+        const esSaludo = saludos.some(s => textoFinal.toLowerCase().startsWith(s));
 
-        if (text === '/start' || esSaludo) {
+        if (textoFinal === '/start' || esSaludo) {
             userStates[userId] = null; // Limpiar estado al iniciar
             bot.sendChatAction(chatId, 'typing');
             bot.sendMessage(chatId,
@@ -598,7 +938,7 @@ async function procesarMensajeSync(msg) {
         const estadoActual = userStates[userId];
 
         if (estadoActual && estadoActual.state === 'ESPERANDO_MTTO') {
-            const reporte = text;
+            const reporte = textoFinal;
             const maquina = estadoActual.machineName;
             const tipoMtto = estadoActual.mttoType || 'Correctivo/Ajuste';
             const tiempo = obtenerHoraColombia();
@@ -631,23 +971,30 @@ async function procesarMensajeSync(msg) {
         }
 
         if (estadoActual && estadoActual.state === 'CHAT_IA') {
-            // Lógica de IA solo si está en este modo
-            if (!ai) {
-                bot.sendMessage(chatId, "⚠️ La IA está desactivada o sin cuota. Usa los botones.");
+            // Si el usuario quiere salir del modo chat
+            if (textoFinal.toLowerCase() === '/salir' || textoFinal.toLowerCase() === 'salir') {
+                userStates[userId] = null;
+                bot.sendMessage(chatId, "🚪 *Saliste del Chat con IA.*\n\nVolviste al menú principal. ¿Qué deseas hacer?", { 
+                    parse_mode: 'Markdown',
+                    reply_markup: menus.mainKeyboard // Asumiendo que mainKeyboard existe en menus
+                });
                 return;
             }
-            // ... (Lógica de Gemini existente)
-        }
-
-        // 3. Filtro de Seguridad (Ignorar texto plano si no hay contexto)
-        // Esto evita que mensajes aleatorios disparen procesos pesados o IA.
-        if (!text.startsWith('/') && !estadoActual) {
-            console.log(`ℹ️ Mensaje ignorado (Sin contexto): "${text}"`);
-            return;
+            
+            // Ejecutar Ollama
+            bot.sendChatAction(chatId, 'typing');
+            const respuestaIA = await responderConOllama(chatId, textoFinal);
+            if (respuestaIA) {
+                bot.sendMessage(chatId, respuestaIA, { parse_mode: 'Markdown' }).catch(err => {
+                    console.warn('⚠️ Error de formato Markdown detectado. Enviando como texto plano...');
+                    bot.sendMessage(chatId, respuestaIA);
+                });
+            }
+            return; // Terminar aquí para no procesar otros comandos
         }
 
         // Comando /ayuda (alias de /start)
-        if (text === '/ayuda') {
+        if (textoFinal === '/ayuda') {
             bot.sendChatAction(chatId, 'typing');
             const msgAyuda = `🐾 *Comandos Disponibles:*\n\n/pendientes - Ver deudores\n/entregas - Últimos despachos\n/maquinas - Estado planta\n/deuda [COD] - Ver deuda específica\n/id - Ver tu ID\n/ping - Test de vida`;
             bot.sendMessage(chatId, msgAyuda, { parse_mode: 'Markdown' });
@@ -655,7 +1002,7 @@ async function procesarMensajeSync(msg) {
         }
 
         // 3. Comando /ping – test rápido
-        if (text === '/ping') {
+        if (textoFinal === '/ping') {
             bot.sendMessage(chatId, '😼 *¡Pong!* Estoy vivo y conectado a Gato Negro.', { parse_mode: 'Markdown' });
             return;
         }
@@ -663,7 +1010,7 @@ async function procesarMensajeSync(msg) {
         // --- NUEVOS COMANDOS OPERATIVOS ---
         
         // A. Ver deudores de tabaco
-        if (text === '/pendientes') {
+        if (textoFinal === '/pendientes') {
             bot.sendChatAction(chatId, 'typing');
             try {
                 const respuesta = await listarPendientesTabacos();
@@ -675,7 +1022,7 @@ async function procesarMensajeSync(msg) {
         }
 
         // B. Ver últimas entregas
-        if (text === '/entregas') {
+        if (textoFinal === '/entregas') {
             bot.sendChatAction(chatId, 'typing');
             const respuesta = await listarUltimasEntregas();
             bot.sendMessage(chatId, respuesta, { parse_mode: 'Markdown' });
@@ -684,7 +1031,7 @@ async function procesarMensajeSync(msg) {
 
         // C. Registro rápido de producción (Texto Natural)
         const regexProd = /^([A-Z0-9]{3}|[a-zA-Z\s]{3,})\s+(\d+)\s+tabacos(?:\s+(extra))?(?:\s*(?:y|,|)\s*(\d+)\s+cestas(?:\s+([\w\s]+))?)?$/i;
-        const match = text.trim().match(regexProd);
+        const match = textoFinal.trim().match(regexProd);
         if (match) {
             bot.sendChatAction(chatId, 'typing');
             const nombreCod = match[1].trim();
@@ -699,7 +1046,7 @@ async function procesarMensajeSync(msg) {
         }
 
         // 4. Comando /maquinas
-        if (text === '/maquinas' || text === '/reporte') {
+        if (textoFinal === '/maquinas' || textoFinal === '/reporte') {
             bot.sendChatAction(chatId, 'typing');
             try {
                 const { data: maquinas } = await supabase.from('maquinas').select('*');
@@ -728,9 +1075,9 @@ async function procesarMensajeSync(msg) {
         }
 
         // 5. Comando /deuda [codigo]
-        if (text.startsWith('/deuda')) {
+        if (textoFinal.startsWith('/deuda')) {
             bot.sendChatAction(chatId, 'typing');
-            const partes = text.trim().split(/\s+/);
+            const partes = textoFinal.trim().split(/\s+/);
             const codigo = partes[1] ? partes[1].toUpperCase() : null;
             if (!codigo) {
                 bot.sendMessage(chatId, '⚠️ Usa: `/deuda F11`', { parse_mode: 'Markdown' });
@@ -751,12 +1098,17 @@ async function procesarMensajeSync(msg) {
             return;
         }
 
-        // 6. Fallback: Despachar a Ollama si no es un comando de menú
-        bot.sendChatAction(chatId, 'typing');
-        const respuestaIA = await responderConOllama(chatId, text);
-        if (respuestaIA) {
-            bot.sendMessage(chatId, respuestaIA, { parse_mode: 'Markdown' });
-        }
+        // ============================================================
+        // ⚠️ FALLBACK: Mensaje no reconocido
+        // ============================================================
+        console.log(`ℹ️ Mensaje no reconocido: "${textoFinal}"`);
+        bot.sendMessage(chatId, 
+            `🐾 *¡Miau!* No entendí lo que quisiste decir.\n\nSi quieres conversar, hacerme preguntas o registrar entregas de tabacos, entra al 🤖 *Chat con IA* presionando el botón en el menú principal.\n\n¿Qué deseas hacer ahora?`, 
+            { 
+                parse_mode: 'Markdown',
+                reply_markup: menus.mainKeyboard
+            }
+        );
 
     } catch (globalErr) {
         console.error("❌ CRASH EVITADO en bot.on('message'):", globalErr);
@@ -777,6 +1129,18 @@ bot.on('polling_error', (error) => {
 
 process.on('unhandledRejection', (reason) => {
     console.error('⚠️ Error no manejado:', reason?.message || reason);
+});
+
+// Apagado elegante para evitar procesos zombies que causen el Error 409
+process.once('SIGINT', () => {
+    console.log('🛑 Apagando el bot de Telegram limpiamente...');
+    if (bot && bot.isPolling()) bot.stopPolling();
+    process.exit(0);
+});
+process.once('SIGTERM', () => {
+    console.log('🛑 Apagando el bot de Telegram limpiamente...');
+    if (bot && bot.isPolling()) bot.stopPolling();
+    process.exit(0);
 });
 
 // ============================================================
@@ -987,11 +1351,11 @@ bot.on('callback_query', async (query) => {
 
         // G. IA CHAT (MODO MANTENIMIENTO)
         if (data === 'menu_ia') {
-            await bot.editMessageText(`🤖 *Chat con IA*\n\nEstamos en proceso de darle vida a *EL CHAT CON IA*.\n\nPor el momento, esta función está en mantenimiento para mejorar la velocidad y capacidad de respuesta. ¡Vuelve pronto!`, {
+            userStates[userId] = { state: 'CHAT_IA' }; // Activar estado
+            await bot.editMessageText(`🤖 *Chat con IA (Black Cat Agent)*\n\n¡Hola! Estoy usando el servidor local de tu PC. Puedes preguntarme sobre la fábrica, consultar deudas, inventario o máquinas.\n\nEscribe tu pregunta aquí abajo o envía \`/salir\` para volver al menú.`, {
                 chat_id: chatId,
                 message_id: messageId,
                 parse_mode: 'Markdown',
-                reply_markup: menus.backToMainKeyboard
             }).catch(err => {
                 if (!err.message.includes('message is not modified')) {
                     console.error("Error en editMessageText:", err.message);

@@ -1,0 +1,73 @@
+# Historial de Conversación con Gemini Code Assist para Gato Negro ERP Bot
+
+Este documento registra la evolución de las instrucciones, la configuración del bot de Telegram y la integración con Inteligencia Artificial Local (Ollama).
+
+## 🧠 1. Evolución del "Aura" (System Prompting)
+
+### A. Confusión de Entidades (Similitud de Tokens)
+* **El Problema:** El bot confundía a "Gonzalo Jaimes Bastos" (Fundador) con "Gonzalo Andres Jaimes" (Creador) porque comparten la mayoría de sus *tokens* (palabras clave).
+* **La Solución:** Implementamos **Separación Visual**. Añadimos emojis específicos (`👔` y `💻`) y escribimos los roles en **MAYÚSCULAS** para que el modelo guardara ambas identidades en espacios de memoria distintos.
+
+### B. El Síndrome del "Robot Asustado" (Positive Framing)
+* **El Problema:** Al ponerle demasiadas reglas con "ESTÁ PROHIBIDO" o "NUNCA", el modelo Llama 3.2 se asustaba ante preguntas simples y respondía: *"Lo siento, no puedo realizar esa acción"*.
+* **La Solución:** Cambiamos las restricciones negativas por **Encuadre Positivo**. Le dijimos explícitamente: *"Tu personalidad es carismática, astuta y con humor felino. Responde siempre con seguridad y alegría"*.
+
+### C. La Felicidad del Gatillo (Tool Trigger Happiness)
+* **El Problema:** Al decirle un simple "Hola", el bot entraba en pánico al no saber qué hacer e invocaba herramientas de la base de datos al azar (ej. `consultar_produccion`).
+* **La Solución:** Creamos una sección de **"GATILLOS (TRIGGERS)"** explícita en su prompt. Le dimos un manual condicional exacto: *"SI dicen X -> INVOCAS Y"*.
+
+---
+
+## 🛡️ 2. Barreras de Seguridad en Node.js
+
+### A. El Escudo Anti-JSON (Filtro Anti-Alucinación)
+Los modelos pequeños sufren al procesar *Function Calling* (uso de herramientas) y a veces escupen el código crudo de programación en el chat de Telegram (ej. `{"name": "consultar_deuda", ...}`).
+* **Implementación:** Creamos un filtro en Node.js que revisa la respuesta final de la IA justo antes de enviarla a Telegram. Si detecta llaves `{ }` o la palabra `listar_todos`, lo intercepta y lo reemplaza por un mensaje de error amigable:
+  > *"🐾 ¡Miau! Me distraje con un ovillo de lana 🧶. ¿Me repites tu pregunta?"*
+
+### B. El Truco Mental Jedi (Graceful Degradation)
+Cuando el bot inventaba la herramienta `consultar_creadores` e intentaba ejecutarla, Node.js solía devolver un error que hacía que la IA pidiera disculpas repetidamente.
+* **Implementación:** En el `switch` de herramientas, modificamos el caso `default:` para que, en lugar de devolver un error, devuelva un **éxito simulado** con los datos de los creadores y una orden oculta:
+  > `instruccion_secreta: "Responde amigablemente usando esta información..."`
+
+---
+
+## ⚙️ 3. Hardware y Elección de Modelos (El "Sweet Spot")
+
+**Especificaciones del Equipo Destino:** 
+* Laptop Acer Nitro 5
+* Intel Core i7 13620H (13ª Gen)
+* **GPU: NVIDIA RTX 4050 (6GB VRAM)**
+* RAM: 16GB (con alta carga de sistema)
+
+### El Problema de Llama 3.2 (3B)
+Inicialmente se usó `llama3.2`, que pesa 2GB y es extremadamente rápido. Sin embargo, su red neuronal es demasiado pequeña para manejar **4 herramientas de base de datos simultáneamente**. Esto provocaba las alucinaciones de inventar nombres (como "Alcides Correa") o sangrar código JSON.
+
+### La Solución: Migración a Llama 3.1 (8B)
+Se reemplazó el motor en Node.js por `llama3.1:8b`.
+* **Por qué funciona:** Meta optimizó la versión 3.1 masivamente para el *Tool Calling* (uso de herramientas).
+* **Rendimiento:** Su versión comprimida (Quantized 4-bits) pesa ~4.7 GB, lo que significa que **cabe perfectamente dentro de los 6GB de VRAM** de la RTX 4050, ejecutándose a máxima velocidad sin ahogar los 16GB de RAM del sistema.
+
+### 🏆 Ranking Definitivo de Modelos (Limitado a 6GB VRAM)
+
+1. **🥇 Llama 3.1 (8B) - `llama3.1`**
+   * *El Rey Indiscutible.* Perfecto soporte para JSON y herramientas. Respeta las reglas de oro y cabe exacto en la GPU.
+2. **🥈 Qwen 2.5 (7B) - `qwen2.5:7b`**
+   * *El Plan B.* Extraordinario seguimiento de instrucciones, excelente español y muy estable para código.
+3. **🥉 Mistral Nemo (12B) - `mistral-nemo`**
+   * *El Genio Pesado.* Redacción hermosa e inteligencia superior. Sin embargo (pesa 7.1GB), desborda la VRAM y usa RAM del sistema, causando algo de lentitud.
+4. **🏅 Gemma 2 (9B) - `gemma2`**
+   * Excelente razonamiento de Google, pero a veces es terco y tiende a ignorar los filtros anti-JSON.
+5. **🎖️ Llama 3.2 (3B) - `llama3.2`**
+   * Muy rápido, pero sufre de *Tool Trigger Happiness* (quiere usar herramientas para todo) y alucina bajo presión. Ideal para chat simple, malo para el ERP.
+
+---
+
+## 🚀 4. Flujo Técnico Final (Cómo piensa el bot hoy)
+1. Usuario envía mensaje por Telegram.
+2. Filtro de seguridad (Admin Whitelist).
+3. El mensaje entra al array de contexto de conversaciones de `Ollama`.
+4. Llama 3.1 lee el mensaje y el `SYSTEM_PROMPT`. Decide si charla o invoca una herramienta.
+5. Si invoca herramienta: Node.js ejecuta Supabase, devuelve el JSON a Ollama y Llama 3.1 redacta la respuesta natural.
+6. El **Filtro Anti-Alucinación** escanea la respuesta final buscando fugas de JSON.
+7. Se envía el mensaje formateado en MarkdownV2 al usuario.

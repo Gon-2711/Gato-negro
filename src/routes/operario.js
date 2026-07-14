@@ -54,10 +54,22 @@ router.get('/anilladores', isAdmin, async (req, res) => {
 
 // ---------------- ENVOLVEDORAS ----------------
 
-router.get('/envolvedoras', isAdmin, async (req, res) => {
+router.get('/envolvedoras', isAdmin, (req, res) => res.redirect('/envolvedoras/despacho'));
+
+router.get('/envolvedoras/despacho', isAdmin, async (req, res) => {
+    const { data: empleados } = await supabase.from('empleados_fabriquines').select('*').order('codigo');
+    res.render('produccion/envolvedoras_despacho', { empleados: empleados || [] });
+});
+
+router.get('/envolvedoras/recepcion', isAdmin, async (req, res) => {
+    const { data: empleados } = await supabase.from('empleados_fabriquines').select('*').order('codigo');
+    res.render('produccion/envolvedoras_recepcion', { empleados: empleados || [] });
+});
+
+router.get('/envolvedoras/control', isAdmin, async (req, res) => {
     const { data: empleados } = await supabase.from('empleados_fabriquines').select('*').order('codigo');
     const { data: registros }  = await supabase.from('recepcion_envolvedoras').select('*').eq('estado', 'pendiente');
-    res.render('produccion/envolvedoras', { empleados: empleados || [], registros: registros || [] });
+    res.render('produccion/envolvedoras_control', { empleados: empleados || [], registros: registros || [] });
 });
 
 // ---------------- ANILLADORES POST ----------------
@@ -93,6 +105,35 @@ router.post('/anilladores/validar_tarea/:id', isAdmin, async (req, res) => {
 });
 
 // ---------------- ENVOLVEDORAS POST ----------------
+
+router.post('/api/envolvedoras/recibir', isAdmin, async (req, res) => {
+    const { empleado_id, tabacos_envueltos, merma_papel, merma_tabacos } = req.body;
+    const tabacos_ok = parseInt(tabacos_envueltos) || 0;
+    
+    if (!empleado_id || tabacos_ok <= 0) {
+        return res.send(mostrarAlerta('Error', 'Datos inválidos', 'error', '/envolvedoras'));
+    }
+
+    try {
+        const tiempo = obtenerHoraColombia();
+        
+        // Aquí eventualmente se descontará la deuda de la envolvedora
+        // Por ahora, registramos la entrada de tabacos envueltos al inventario
+        const { data: invEnvuelto } = await supabase.from('inventario').select('*').ilike('material', '%tabaco%envuelto%').single();
+        if (invEnvuelto) {
+            await supabase.from('inventario').update({ cantidad: invEnvuelto.cantidad + tabacos_ok }).eq('id', invEnvuelto.id);
+            await supabase.from('movimientos').insert([{
+                fecha: tiempo.fecha, hora: tiempo.hora, tipo_movimiento: 'ENTRADA',
+                material: 'Tabacos Envueltos', cantidad: tabacos_ok, 
+                usuario: req.session.usuario || 'Admin', 
+                descripcion: `Recepción de Envolvedora (Merma Papel: ${merma_papel || 0}, Merma Tabaco: ${merma_tabacos || 0})`
+            }]);
+        }
+        res.send(mostrarAlerta('✅ Éxito', `Se recibieron ${tabacos_ok} tabacos envueltos.`, 'success', '/envolvedoras'));
+    } catch(err) {
+        res.send(mostrarAlerta('Error', 'Hubo un error al procesar la recepción.', 'error', '/envolvedoras'));
+    }
+});
 
 router.post('/guardar_envoltedora', isAdmin, async (req, res) => {
     const empId = req.body.empleado_id;

@@ -1,0 +1,16 @@
+services:
+  gato-negro-bot:
+    build: .
+    container_name: bcb-bot-container
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "3000:3000"
+    volumes:
+      # Mapear el código local al contenedor para actualizar sin tener que reconstruir
+      - .:/usr/src/app
+      - /usr/src/app/node_modules
+    environment:
+      # Este host permite que el contenedor hable con tu Windows local
+      - OLLAMA_HOST=http://host.docker.internal:11434

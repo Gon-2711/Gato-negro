@@ -1,4 +1,6 @@
-# INFORME TÉCNICO EXHAUSTIVO: ERP GATO NEGRO
+> Etiquetas: #erp #backend
+
+# INFORME TÉCNICO EXHAUSTIVO: [[SISTEMA_ERP_Y_BOT|ERP GATO NEGRO]]
 **Evolución, Estado Actual y Proyección a Futuro (V.0 -> V.2.2 -> V.3.X)**
 
 **Autor:** Gonzalo Jaimes  
@@ -9,7 +11,7 @@
 
 ## 1. Contexto y Problemática Inicial (Fase Zero)
 
-Históricamente, la **Fábrica de Tabacos Gato Negro** ha operado con un modelo de producción fragmentado y dependiente del esfuerzo humano centralizado. Previo a la intervención tecnológica, el control de logística, inventario, cálculos de materia prima e impresiones de pago (nóminas) recaían de forma asfixiante sobre una metodología manual y obsoleta (archivos "sábana" de Excel sueltos y gestión de papel).
+Históricamente, la **[[EMPRESA_GATO_NEGRO|Fábrica de Tabacos Gato Negro]]** ha operado con un modelo de producción fragmentado y dependiente del esfuerzo humano centralizado. Previo a la intervención tecnológica, el control de logística, inventario, cálculos de materia prima e impresiones de pago (nóminas) recaían de forma asfixiante sobre una metodología manual y obsoleta (archivos "sábana" de Excel sueltos y gestión de papel).
 
 ### Principales Puntos de Dolor Identificados:
 1. **El "Embudo Gregorio":** Todo el cálculo matemático (sumar préstamos de materia prima, restar tabacos devueltos, cobrar cestas) dependía enteramente de los supervisores en los momentos pico, causando retrasos logísticos durante los fines de semana.

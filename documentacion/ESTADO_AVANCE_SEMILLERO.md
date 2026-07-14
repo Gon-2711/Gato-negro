@@ -1,6 +1,8 @@
+> Etiquetas: #academico #semillero #investigacion
+
 # 📊 ESTADO DE AVANCE: PROPUESTA DE SEMILLERO ROBOLAB
 
-**Proyecto:** ERP Híbrido + IA Bot (Gato Negro)  
+**Proyecto:** [[SISTEMA_ERP_Y_BOT|ERP Híbrido]] + [[Black Cat Bot (BCB)|IA Bot]] ([[EMPRESA_GATO_NEGRO|Gato Negro]])  
 **Fecha de Corte:** Actualizado a la V3.0.3  
 **Avance Global Estimado:** **~65%**
 
@@ -25,7 +27,7 @@ Esta fase está totalmente cubierta gracias a la inmersión temprana en la fábr
 El "Cerebro" y el "Motor" ya están construidos, probados y en la nube.
 
 - **Actividad 2.1 (Diseño ER):** **[100%]** - Bases de datos relacionales estables (Inventario, Movimientos, Nómina, Maquinaria, etc.).
-- **Actividad 2.2 (Supabase):** **[100%]** - La nube está configurada con PostgreSQL y protocolos de encriptación (BCrypt).
+- **Actividad 2.2 ([[Supabase]]):** **[100%]** - La nube está configurada con PostgreSQL y protocolos de encriptación (BCrypt).
 - **Actividad 2.3 (Arquitectura MVC/Vercel):** **[100%]** - Backend estructurado en Node.js/Express, Frontend en EJS, y plataforma desplegada exitosamente en Vercel Edge Network.
 
 > **Lo que falta:** Nada crítico a nivel infraestructura. Solo mantenimiento y escalabilidad cuando se sumen nuevos módulos.
@@ -59,7 +61,7 @@ Ya estamos en producción evaluando, pero faltan los pasos "Académicos" de medi
   - ✅ _Lo que tenemos:_ Tableros de BI (Business Intelligence) listos para arrojar la data actual.
   - ❌ _Lo que falta:_ Recopilar oficialmente los datos de "tiempos muertos" de los meses con Anubis/Excel vs los tiempos de los meses usando el nuevo ERP. Tabular estos indicadores (KPIs) para demostrar el impacto real.
 - **Actividad 4.3 (Redacción y Difusión):** **[50%]**
-  - ✅ _Lo que tenemos:_ Gran parte del Informe Final de Proyecto de Grado ya redactado (`INFORME_FINAL_GATO_NEGRO.md`) y manuales técnicos implícitos.
+  - ✅ _Lo que tenemos:_ Gran parte del Informe Final de Proyecto de Grado ya redactado ([[INFORME_FINAL_GATO_NEGRO]]) y manuales técnicos implícitos.
   - ❌ _Lo que falta:_ Extraer la información para redactar el **Artículo Científico** formato paper, y grabar el video demostrativo para el semillero.
 
 ---

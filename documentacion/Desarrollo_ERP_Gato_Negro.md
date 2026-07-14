@@ -1,9 +1,11 @@
+> Etiquetas: #academico #investigacion
+
 # PROPUESTA DE INVESTIGACIÓN: SEMILLERO DE INVESTIGACIÓN (UNIPAMPLONA) 🐈‍⬛
 
 ---
 
 **TÍTULO DE LA PROPUESTA:**  
-DESARROLLO E IMPLEMENTACIÓN DE UN SISTEMA ERP HÍBRIDO CON ASISTENTE VIRTUAL INTELIGENTE (BCB) PARA LA OPTIMIZACIÓN DE RECURSOS Y TRAZABILIDAD EN LA MANUFACTURA ARTESANAL TABACALERA.
+DESARROLLO E IMPLEMENTACIÓN DE UN [[SISTEMA_ERP_Y_BOT|SISTEMA ERP HÍBRIDO]] CON ASISTENTE VIRTUAL INTELIGENTE ([[Black Cat Bot (BCB)|BCB]]) PARA LA OPTIMIZACIÓN DE RECURSOS Y TRAZABILIDAD EN LA MANUFACTURA ARTESANAL TABACALERA.
 
 **Línea de Investigación:**  
 Automatización, Control y Sistemas Inteligentes (Sujeto a las líneas del Programa de Ingeniería Mecatrónica).
@@ -18,7 +20,7 @@ ROBOLAB
 Sede Villa del Rosario (Universidad de Pamplona)
 
 **Ubicación de la Empresa:**
-Fábrica de Tabacos Gato Negro. Barrio Pinto Salinas, San Antonio, Estado Táchira (Venezuela).
+[[EMPRESA_GATO_NEGRO|Fábrica de Tabacos Gato Negro]]. Barrio Pinto Salinas, San Antonio, Estado Táchira (Venezuela).
 
 **Grupo(s) de Investigación:**  
 LOGOS
